@@ -146,6 +146,13 @@ pub trait Storage: Clone {
         flag: types::ValueStateRetrievalFlag,
     ) -> Result<types::ValueState, StorageError>;
 
+    /// Batch retrieve user states for a set of users.
+    async fn batch_get_user_states(
+        &self,
+        unames: &[types::AkdLabel],
+        flag: types::ValueStateRetrievalFlag,
+    ) -> core::result::Result<Vec<types::ValueState>, StorageError>;
+
     /// Retrieve the user -> state version mapping in bulk. This is the same as get_user_states but with less data retrieved from the storage layer
     async fn get_user_state_versions(
         &self,

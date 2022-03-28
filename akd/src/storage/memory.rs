@@ -320,6 +320,14 @@ impl Storage for AsyncInMemoryDatabase {
         Err(StorageError::NotFound(format!("ValueState {:?}", username)))
     }
 
+    async fn batch_get_user_states(
+        &self,
+        unames: &[AkdLabel],
+        flag: ValueStateRetrievalFlag,
+    ) -> core::result::Result<Vec<ValueState>, StorageError> {
+        panic!("Not implemented!");
+    }
+
     async fn get_user_state_versions(
         &self,
         keys: &[AkdLabel],
@@ -751,6 +759,14 @@ impl Storage for AsyncInMemoryDbWithCache {
             }
         }
         Err(StorageError::NotFound(format!("ValueState {:?}", username)))
+    }
+
+    async fn batch_get_user_states(
+        &self,
+        unames: &[AkdLabel],
+        flag: ValueStateRetrievalFlag,
+    ) -> core::result::Result<Vec<ValueState>, StorageError> {
+        panic!("Not implemented!");
     }
 
     async fn get_user_state_versions(

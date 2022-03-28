@@ -1425,6 +1425,218 @@ impl Storage for AsyncMySqlDatabase {
         }
     }
 
+    async fn batch_get_user_states(
+        &self,
+        keys: &[AkdLabel],
+        flag: ValueStateRetrievalFlag,
+    ) -> core::result::Result<Vec<ValueState>, StorageError> {
+        *(self.num_reads.write().await) += 1;
+        self.record_call_stats('r', "batch_get_user_states".to_string(), "".to_string())
+            .await;
+
+        debug!("BEGIN MySQL batch get user states (flag {:?})", flag);
+
+        let result = async {
+            let tic = Instant::now();
+
+            let mut conn = self.get_connection().await?;
+
+            debug!("Creating the temporary search username's table");
+            let out = conn
+                .query_drop(
+                    "CREATE TEMPORARY TABLE `search_users`(`username` VARCHAR(256) NOT NULL, PRIMARY KEY (`username`))",
+                )
+                .await;
+            self.check_for_infra_error(out)?;
+
+            debug!(
+                "Inserting the query users into the temporary table in batches of {}",
+                self.tunable_insert_depth
+            );
+
+            let mut tx = conn.start_transaction(TxOpts::default()).await?;
+            tx.query_drop("SET autocommit=0").await?;
+            tx.query_drop("SET unique_checks=0").await?;
+            tx.query_drop("SET foreign_key_checks=0").await?;
+
+            let mut statement = "INSERT INTO `search_users` (`username`) VALUES ".to_string();
+            for i in 0..self.tunable_insert_depth {
+                if i < self.tunable_insert_depth - 1 {
+                    statement += format!("(:username{}), ", i).as_ref();
+                } else {
+                    statement += format!("(:username{})", i).as_ref();
+                }
+            }
+
+            let mut fallout: Option<Vec<_>> = None;
+            let mut params = vec![];
+            for batch in keys.chunks(self.tunable_insert_depth) {
+                if batch.len() < self.tunable_insert_depth {
+                    // final batch, use a new query
+                    fallout = Some(batch.to_vec());
+                } else {
+                    let pvec: Vec<_> = batch
+                        .iter()
+                        .enumerate()
+                        .map(|(idx, username)| {
+                            (format!("username{}", idx), Value::from(username.0.clone()))
+                        })
+                        .collect();
+                    params.push(mysql_async::Params::from(pvec));
+                }
+            }
+
+            if !params.is_empty() {
+                // first do the big batches
+                let out = tx.exec_batch(statement, params).await;
+                self.check_for_infra_error(out)?;
+            }
+
+            if let Some(remainder) = fallout {
+                // now there's some remainder that wasn't _exactly_ equal to MYSQL_EXTENDED_INSERT_DEPTH
+                // we do it item-by-item
+                let rlen = remainder.len();
+                let mut remainder_stmt =
+                    "INSERT INTO `search_users` (`username`) VALUES ".to_string();
+                for i in 0..rlen {
+                    if i < rlen - 1 {
+                        remainder_stmt += format!("(:username{}), ", i).as_ref();
+                    } else {
+                        remainder_stmt += format!("(:username{})", i).as_ref();
+                    }
+                }
+
+                // we don't need a prepared statement, since we're only doing this 1 time
+                let users_vec: Vec<_> = remainder
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, username)| {
+                        (format!("username{}", idx), Value::from(username.0.clone()))
+                    })
+                    .collect();
+                let params_batch = mysql_async::Params::from(users_vec);
+                let out = tx.exec_drop(remainder_stmt, params_batch).await;
+                self.check_for_infra_error(out)?;
+            }
+
+            // re-enable all the checks
+            tx.query_drop("SET autocommit=1").await?;
+            tx.query_drop("SET unique_checks=1").await?;
+            tx.query_drop("SET foreign_key_checks=1").await?;
+
+            // commit the transaction
+            tx.commit().await?;
+
+            println!("Set up temp users table succeed!");
+
+            let mut get_user_states_query =
+                format!("SELECT `username`, `epoch`, `version`, `node_label_val`, `node_label_len`, `data`
+                            FROM ` (SELECT *, ROW_NUMBER() OVER (PARTITION BY `username` ORDER BY `epoch` DESC) `row_number`
+                            FROM (SELECT `username` FROM {} WHERE {}.`username` =  `search_users`.`username`) `filtered` ", TABLE_USER, TABLE_USER);
+
+            let mut params_map = vec![];
+            match flag {
+                ValueStateRetrievalFlag::SpecificVersion(version) => {
+                    get_user_states_query += "WHERE `version` = :the_version";
+                    params_map.push(("the_version", Value::from(version)));
+                    // TODO: Complete query for other flags
+                }
+                ValueStateRetrievalFlag::SpecificEpoch(epoch) => {
+                    get_user_states_query += "WHERE `epoch` = :the_epoch";
+                    params_map.push(("the_epoch", Value::from(epoch)));
+                }
+                ValueStateRetrievalFlag::MaxEpoch => {
+                    get_user_states_query += "WHERE `epoch` = MAX(`epoch`)";
+                }
+                ValueStateRetrievalFlag::MinEpoch => {
+                    get_user_states_query += "WHERE `epoch` = MIN(`epoch`)"
+                }
+                ValueStateRetrievalFlag::LeqEpoch(epoch) => {
+                    get_user_states_query += "WHERE `epoch` <= :the_epoch";
+                    params_map.push(("the_epoch", Value::from(epoch)));
+                }
+            }
+
+            get_user_states_query += ") `final` WHERE row_number <= 1";
+
+            println!("Get user states query: {}", get_user_states_query);
+
+            let out = conn
+                .exec_iter(get_user_states_query, mysql_async::Params::from(params_map))
+                .await?
+                .map(|mut row| {
+                    if let (
+                        Some(username),
+                        Some(epoch),
+                        Some(version),
+                        Some(node_label_val),
+                        Some(node_label_len),
+                        Some(data),
+                    ) = (
+                        row.take(0),
+                        row.take(1),
+                        row.take(2),
+                        row.take::<Vec<_>, _>(3),
+                        row.take(4),
+                        row.take(5),
+                    ) {
+                        // explicitly check the array length for safety
+                        if node_label_val.len() == 32 {
+                            let val: [u8; 32] = node_label_val.try_into().unwrap();
+                            return Some(ValueState {
+                                epoch,
+                                version,
+                                label: NodeLabel {
+                                    val,
+                                    len: node_label_len,
+                                },
+                                plaintext_val: akd::storage::types::AkdValue(data),
+                                username: akd::storage::types::AkdLabel(username),
+                            });
+                        }
+                    }
+                    None
+                })
+                .await
+                .map(|a| a.into_iter().flatten().collect::<Vec<_>>());
+
+            // drop the temp table of ids
+            let t_out = conn.query_drop("DROP TEMPORARY TABLE `search_users`").await;
+            self.check_for_infra_error(t_out)?;
+
+            let toc = Instant::now() - tic;
+            *(self.time_read.write().await) += toc;
+            let selected_records = self.check_for_infra_error(out)?;
+
+            // Check the transaction log for updated records
+            let mut records_to_return = vec![];
+            if self.is_transaction_active().await {
+                let next_selected_record = selected_records.into_iter().next();
+                if let Some(user_state) = next_selected_record {
+                    if let Some(DbRecord::ValueState(transaction_state)) = self
+                        .trans
+                        .get::<akd::storage::types::ValueState>(&user_state.get_id())
+                        .await
+                    {
+                        records_to_return.push(transaction_state);
+                    } else {
+                        records_to_return.push(user_state);
+                    }
+                }
+            }
+            Ok::<Vec<ValueState>, MySqlError>(records_to_return)
+        };
+
+        let value_states = match result.await {
+            Ok(value_states) => Ok(value_states),
+            Err(error) => {
+                error!("MySQL error {}", error);
+                Err(StorageError::Other(format!("MySQL Error {}", error)))
+            }
+        };
+        value_states
+    }
+
     async fn get_user_state_versions(
         &self,
         keys: &[AkdLabel],

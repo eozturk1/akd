@@ -321,6 +321,13 @@ impl<S: Storage + Sync + Send, V: VRFKeyStorage> Directory<S, V> {
         let current_azks = self.retrieve_current_azks().await?;
         let current_epoch = current_azks.get_latest_epoch();
 
+        // TODO(eoz): Remove this call. It is currently used for testing.
+        let batch_user_states = self
+            .storage
+            .batch_get_user_states(unames, ValueStateRetrievalFlag::LeqEpoch(current_epoch))
+            .await;
+        println!("Batch user states result: {:?}", batch_user_states);
+
         // Take a union of the labels we will need proofs of for each lookup.
         let mut lookup_labels = Vec::new();
         let mut lookup_infos = Vec::new();
