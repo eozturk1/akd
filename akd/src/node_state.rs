@@ -363,8 +363,6 @@ pub struct HistoryChildState {
     pub label: NodeLabel,
     /// Child node's hash value
     pub hash_val: [u8; 32],
-    /// Child node's state this epoch being pointed to here
-    pub epoch_version: u64,
 }
 
 unsafe impl Sync for HistoryChildState {}
@@ -375,7 +373,6 @@ impl HistoryChildState {
         HistoryChildState {
             label,
             hash_val: from_digest::<H>(hash_val),
-            epoch_version: ep,
         }
     }
 }
@@ -385,16 +382,13 @@ impl Clone for HistoryChildState {
         Self {
             label: self.label,
             hash_val: self.hash_val,
-            epoch_version: self.epoch_version,
         }
     }
 }
 
 impl PartialEq for HistoryChildState {
     fn eq(&self, other: &Self) -> bool {
-        self.label == other.label
-            && self.hash_val == other.hash_val
-            && self.epoch_version == other.epoch_version
+        self.label == other.label && self.hash_val == other.hash_val
     }
 }
 
@@ -403,9 +397,8 @@ impl fmt::Display for HistoryChildState {
         write!(
             f,
             "\n\t\t label = {:?}
-                \n\t\t hash = {:?},
-                \n\t\t epoch_version = {:?}\n\n",
-            self.label, self.hash_val, self.epoch_version
+                \n\t\t hash = {:?}\n\n",
+            self.label, self.hash_val
         )
     }
 }

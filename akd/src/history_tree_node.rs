@@ -766,7 +766,6 @@ impl HistoryTreeNode {
                 self.get_value::<_, H>(storage).await?,
                 hash_label::<H>(self.label),
             ])),
-            epoch_version: self.get_latest_epoch(),
         })
     }
 
@@ -781,7 +780,6 @@ impl HistoryTreeNode {
                 self.get_value::<_, H>(storage).await?,
                 hash_label::<H>(self.label),
             ])),
-            epoch_version: self.get_latest_epoch(),
         })
     }
 }

@@ -263,7 +263,6 @@ impl DbRecord {
         HistoryChildState {
             label: NodeLabel::new(label_val, label_len),
             hash_val,
-            epoch_version,
         }
     }
 
