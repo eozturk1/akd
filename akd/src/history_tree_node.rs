@@ -279,7 +279,7 @@ impl HistoryTreeNode {
                 new_node.write_to_storage(storage).await?;
                 set_state_map(
                     storage,
-                    HistoryNodeState::new::<H>(NodeStateKey(new_node.label, epoch)),
+                    HistoryNodeState::new::<H>(NodeStateKey(new_node.label)),
                 )
                 .await?;
                 *num_nodes += 1;
@@ -389,7 +389,7 @@ impl HistoryTreeNode {
                 }
                 let mut updated_state = self.get_state_at_epoch(storage, epoch).await?;
                 updated_state.value = from_digest::<H>(hash_digest);
-                updated_state.key = NodeStateKey(self.label, epoch);
+                updated_state.key = NodeStateKey(self.label);
                 set_state_map(storage, updated_state).await?;
 
                 self.write_to_storage(storage).await?;
@@ -459,7 +459,7 @@ impl HistoryTreeNode {
                             .ok_or(HistoryTreeNodeError::NoChildAtEpoch(epoch, s_dir))?;
                     self_child_state.hash_val = from_digest::<H>(new_hash_val);
                     parent_updated_state.child_states[s_dir] = Some(self_child_state);
-                    parent_updated_state.key = NodeStateKey(parent.label, epoch);
+                    parent_updated_state.key = NodeStateKey(parent.label);
                     set_state_map(storage, parent_updated_state).await?;
                     parent.write_to_storage(storage).await?;
 
@@ -494,10 +494,10 @@ impl HistoryTreeNode {
                     .await
                 {
                     Ok(mut latest_st) => {
-                        latest_st.key = NodeStateKey(self.label, epoch);
+                        latest_st.key = NodeStateKey(self.label);
                         latest_st
                     }
-                    Err(_) => HistoryNodeState::new::<H>(NodeStateKey(self.label, epoch)),
+                    Err(_) => HistoryNodeState::new::<H>(NodeStateKey(self.label)),
                 },
             )
             .await?;
@@ -529,7 +529,7 @@ impl HistoryTreeNode {
                     HistoryNodeState {
                         value,
                         child_states,
-                        key: NodeStateKey(self.label, epoch),
+                        key: NodeStateKey(self.label),
                     },
                 )
                 .await?;
@@ -815,8 +815,8 @@ pub async fn get_empty_root<H: Hasher, S: Storage + Send + Sync>(
     if let Some(epoch) = ep {
         node.birth_epoch = epoch;
         node.last_epoch = epoch;
-        let new_state: HistoryNodeState =
-            HistoryNodeState::new::<H>(NodeStateKey(node.label, epoch));
+        // QQ(eoz): Below function also had an epoch, do we need this?
+        let new_state: HistoryNodeState = HistoryNodeState::new::<H>(NodeStateKey(node.label));
         set_state_map(storage, new_state).await?;
     }
 
@@ -839,10 +839,10 @@ pub async fn get_leaf_node<H: Hasher, S: Storage + Sync + Send>(
         node_type: NodeType::Leaf,
     };
 
-    let mut new_state: HistoryNodeState =
-        HistoryNodeState::new::<H>(NodeStateKey(node.label, birth_epoch));
+    let mut new_state: HistoryNodeState = HistoryNodeState::new::<H>(NodeStateKey(node.label));
     new_state.value = from_digest::<H>(H::merge(&[H::hash(&EMPTY_VALUE), *value]));
 
+    // QQ(eoz): Why do get_leaf_node store state?
     set_state_map(storage, new_state).await?;
 
     Ok(node)
@@ -863,7 +863,7 @@ pub(crate) async fn get_leaf_node_without_hashing<H: Hasher, S: Storage + Sync +
     };
 
     let mut new_state: HistoryNodeState =
-        HistoryNodeState::new::<H>(NodeStateKey(history_node.label, birth_epoch));
+        HistoryNodeState::new::<H>(NodeStateKey(history_node.label));
     new_state.value = from_digest::<H>(node.hash);
 
     set_state_map(storage, new_state).await?;
@@ -896,7 +896,7 @@ pub(crate) async fn get_state_map<S: Storage + Sync + Send>(
 }
 
 pub(crate) fn get_state_map_key(node: &HistoryTreeNode, key: u64) -> NodeStateKey {
-    NodeStateKey(node.label, key)
+    NodeStateKey(node.label)
 }
 
 #[cfg(test)]

@@ -249,7 +249,7 @@ impl DbRecord {
         HistoryNodeState {
             value,
             child_states,
-            key: NodeStateKey(NodeLabel::new(label_val, label_len), epoch),
+            key: NodeStateKey(NodeLabel::new(label_val, label_len)),
         }
     }
 

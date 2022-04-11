@@ -253,7 +253,7 @@ pub struct HistoryNodeState {
 /// parameters are node label and epoch
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub struct NodeStateKey(pub NodeLabel, pub u64);
+pub struct NodeStateKey(pub NodeLabel);
 
 impl PartialOrd for NodeStateKey {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
@@ -263,15 +263,11 @@ impl PartialOrd for NodeStateKey {
 
 impl Ord for NodeStateKey {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        //`label_len`, `label_val`, `epoch`
+        //`label_len`, `label_val`
         let label_cmp = self.0.len.cmp(&other.0.len);
         if let std::cmp::Ordering::Equal = label_cmp {
             let value_cmp = self.0.val.cmp(&other.0.val);
-            if let std::cmp::Ordering::Equal = value_cmp {
-                self.1.cmp(&self.1)
-            } else {
-                value_cmp
-            }
+            value_cmp
         } else {
             label_cmp
         }
@@ -293,7 +289,6 @@ impl Storable for HistoryNodeState {
         let mut result = vec![StorageType::HistoryNodeState as u8];
         result.extend_from_slice(&key.0.len.to_le_bytes());
         result.extend_from_slice(&key.0.val);
-        result.extend_from_slice(&key.1.to_le_bytes());
         result
     }
 
@@ -311,7 +306,7 @@ impl Storable for HistoryNodeState {
         let val = val_bytes;
         let epoch = u64::from_le_bytes(epoch_bytes);
 
-        Ok(NodeStateKey(NodeLabel { len, val }, epoch))
+        Ok(NodeStateKey(NodeLabel { len, val }))
     }
 }
 

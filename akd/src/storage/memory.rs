@@ -340,7 +340,7 @@ impl Storage for AsyncInMemoryDatabase {
         epoch_in_question: u64,
     ) -> Result<u64, StorageError> {
         let ids = (0..=epoch_in_question)
-            .map(|epoch| crate::node_state::NodeStateKey(node_label, epoch))
+            .map(|epoch| crate::node_state::NodeStateKey(node_label))
             .collect::<Vec<_>>();
         let data = self
             .batch_get::<crate::node_state::HistoryNodeState>(&ids)
@@ -773,7 +773,7 @@ impl Storage for AsyncInMemoryDbWithCache {
         epoch_in_question: u64,
     ) -> Result<u64, StorageError> {
         let ids = (0..=epoch_in_question)
-            .map(|epoch| crate::node_state::NodeStateKey(node_label, epoch))
+            .map(|epoch| crate::node_state::NodeStateKey(node_label))
             .collect::<Vec<_>>();
         let data = self
             .batch_get::<crate::node_state::HistoryNodeState>(&ids)
